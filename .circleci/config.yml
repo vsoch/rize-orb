@@ -40,7 +40,6 @@ jobs:
   test-install:
     executor: rize/docker
     steps:
-      - checkout
       - rize/install-rize
 
   publish-dev:
