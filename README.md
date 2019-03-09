@@ -3,9 +3,8 @@
 This is the [Circle CI Orb](https://circleci.com/orbs/registry/) to 
 generate a rize (shiny application) in a Docker container.
 Please see the [published orb](https://circleci.com/orbs/registry/orb/vanessa/rize)
-to get the latest version, or look into the
-[VERSION](VERSION) file here. The documentation will state 1.0.0 but we are beyond
-that version.
+to get the latest version, or look into the [VERSION](VERSION) file here. 
+The documentation will state 1.0.0 but we are beyond that version.
 
 ## Development
 
