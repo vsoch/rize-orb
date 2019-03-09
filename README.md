@@ -16,8 +16,16 @@ the CircleCI client, and then validate it locally:
 $ circleci orb validate src/orb.yml
 ```
 
+and then create the namespace:
+
+```bash
+circleci orb create vanessa/rize
+```
+
 and also deployed a development alpha version
 
 ```bash
 $ circleci orb publish src/orb.yml vanessa/rize@dev:alpha
 ```
+
+For a vanilla CircleCI configuration (without the Orb) see [here](https://github.com/vsoch/rize-circle).
