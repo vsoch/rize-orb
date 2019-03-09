@@ -1,0 +1,103 @@
+# CircleCI build config to test the Singularity Orb
+
+version: 2.1
+
+orbs:
+  rize: vanessa/rize@dev:alpha
+
+executors:
+  cli:
+    resource_class: medium
+    docker:
+      - image: circleci/circleci-cli
+  lint-condo:
+    resource_class: medium
+    docker:
+      - image: singapore/lint-condo
+
+jobs:
+  lint:
+    executor: lint-condo
+    steps:
+      - checkout
+      - run: yamllint .
+
+  validate:
+    executor: cli
+    steps:
+      - checkout
+      - run: circleci orb validate src/orb.yml
+
+
+  test-rize:
+    executor: rize/docker
+    steps:
+      - checkout
+      - rize/rize:
+          container-name: vanessa/rize-container
+          container-tag: latest
+
+  test-install:
+    executor: rize/docker
+    steps:
+      - checkout
+      - rize/install-rize
+
+  publish-dev:
+    executor: cli
+    steps:
+      - checkout
+      - run:
+          name: publish dev versions
+          command: |
+            circleci orb publish src/orb.yml vanessa/rize@dev:alpha --token $CIRCLE_TOKEN
+            circleci orb publish src/orb.yml vanessa/rize@dev:$CIRCLE_BRANCH-${CIRCLE_SHA1:0:7} --token $CIRCLE_TOKEN
+            circleci orb publish src/orb.yml vanessa/rize@dev:${CIRCLE_SHA1:0:7} --token $CIRCLE_TOKEN
+
+  dev-promote-prod:
+    executor: cli
+    steps:
+      - checkout
+      - run: circleci orb publish promote vanessa/rize@dev:${CIRCLE_SHA1:0:7} patch --token $CIRCLE_TOKEN
+
+  publish:
+    executor: cli
+    steps:
+      - checkout
+      - run:
+          name: publish production versions
+          command: |
+            VERSION=$(cat VERSION)
+            circleci orb publish src/orb.yml vanessa/rize@${VERSION} --token $CIRCLE_TOKEN
+
+workflows:
+  validate_unit-test_dev-deploy:
+    jobs:
+      - lint
+
+      - validate:
+          requires:
+            - lint
+
+      - test-rize:
+          requires:
+            - validate
+
+      - test-install:
+          requires:
+            - validate
+
+      - publish-dev:
+          requires:
+            - test-rize
+            - test-install
+
+      - publish:
+          requires:
+            - test-rize
+            - test-install
+
+          filters:
+             branches:
+               only:
+                 - master

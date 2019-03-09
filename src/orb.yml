@@ -1,0 +1,236 @@
+version: 2.1
+
+description: >
+  An orb for building a shiny application into a Docker container using rize
+
+# EXAMPLES ####################################################################
+examples:
+
+  rize_and_deploy:
+    description: |
+      Generate a container with rize for your shiny application, and deploy
+      to Docker Hub. Make sure you have defined your DOCKER_USER and
+      DOCKER_PASS in your CircleCI project environment variables for 
+      deploy to work.
+    usage:
+      version: 2.1
+
+      orbs:
+        rize: vanessa/rize@1.0.0
+
+      workflows:
+          rize_and_deploy:
+            jobs:
+              - rize/rize_and_deploy:
+                  container-name: vanessa/rize-container
+                  container-tag: latest
+
+
+# EXECUTORS ####################################################################
+# These are executors, the backend bases to run on
+
+executors:
+  docker:
+    description: Pre-build Docker container base with Docker and rize
+    docker:
+      - image: vanessa/docker-rize:3.5.2
+
+
+# COMMANDS ####################################################################
+# These are commands that can be given as steps to jobs
+commands:
+
+  install-rize:
+    description: |
+       Install an updated version of rize
+    parameters:
+      repository:
+        type: string
+        default: "cole-brokamp/rize"
+      branch-tag:
+        type: string
+        default: "master"
+    steps:
+      - run:
+          name: Install a different or updated version of rize from GitHub
+          command: |
+            Rscript -e "remotes::install_github('<< parameters.repository >>@<< parameters.branch-tag >>')" && \
+
+  rize:
+    description: |
+      Run rize to generate a Docker container with shiny
+    parameters:
+      container-name:
+        type: string
+        default: "$DOCKER_USER/$CIRCLE_PROJECT_REPONAME"
+      container-tag:
+        type: string
+        default: $CIRCLE_SHA1
+      directory:
+        type: string
+        default: "$PWD"
+    steps:
+      - checkout
+      - run:
+          name: Run rize to generate Docker container with shiny application
+          command: |
+            cd <<parameters.directory>>
+
+            # Defaults include directory=getpwd()
+            #                  re.automagic=FALSE
+            #                  view_app=TRUE
+            #                  app.name=<container-name>
+            Rscript -e "rize::shiny_dockerize(view_app=FALSE, app.name='<< parameters.container-name >>:<< parameters.container-tag >>')"
+
+
+  docker-save:
+    description: |
+      Save a Docker container to the cache
+    parameters:
+      container-name:
+        type: string
+        default: "$DOCKER_USER/$CIRCLE_PROJECT_REPONAME"
+      container-tag:
+        type: string
+        default: $CIRCLE_SHA1
+    steps:
+      - run: 
+          name: Docker Save
+          no_output_timeout: 40m
+          command: |
+              echo "Saving <<parameters.container-name>>:<<parameters.container-tag>> to container.tar.gz"
+              mkdir -p /tmp/cache
+              docker save <<parameters.container-name>>:<<parameters.container-tag>> \
+              | pigz -2 -p 3 > /tmp/cache/container.tar.gz
+
+  docker-load:
+    description: |
+      Load a Docker container from the cache
+    parameters:
+      container-name:
+        type: string
+        default: "$DOCKER_USER/$CIRCLE_PROJECT_REPONAME"
+      container-tag:
+        type: string
+        default: $CIRCLE_SHA1
+    steps:
+      - run: 
+          name: Load Docker Container Image
+          no_output_timeout: 40m
+          command: |
+              echo "Working directory is ${PWD}"
+              docker info
+              set +o pipefail
+              if [ -f /tmp/cache/container.tar.gz ]; then
+                  apk update && apk add --no-cache pigz curl curl-dev
+                  pigz -d --stdout /tmp/cache/container.tar.gz | docker load
+                  docker images
+              fi
+
+  docker-deploy:
+    description: |
+      Deploy a Docker Container to Docker Hub
+    parameters:
+      container-name:
+        type: string
+        default: "$DOCKER_USER/$CIRCLE_PROJECT_REPONAME"
+      container-tag:
+        type: string
+        default: $CIRCLE_SHA1
+    steps:
+      - run: 
+          name: Deploy to Docker Hub
+          no_output_timeout: 40m
+          command: |
+              echo "Container name set to <<parameters.container-name>>:<<parameters.container-tag>>"
+              if [[ -n "$DOCKER_PASS" ]]; then
+                    docker login -u $DOCKER_USER -p $DOCKER_PASS
+                    docker push <<parameters.container-name>>:<<parameters.container-tag>>
+                    echo "Tagging latest image..."
+                    docker tag <<parameters.container-name>>:<<parameters.container-tag>> <<parameters.container-name>>:latest
+                    docker push <<parameters.container-name>>:latest
+              fi
+
+
+# JOBS #########################################################################
+# Jobs are combined sets of commands for the user to easily run
+
+jobs:
+
+  rize:
+    description: |
+      Just run rize using the Docker base to generate a container with a shiny
+      application. No deployment is done, but the container is loaded and saved
+      to a cache.
+    executor: docker
+    parameters:
+      container-name:
+        type: string
+        default: "rize-container"
+      container-tag:
+        type: string
+        default: latest
+      directory:
+        type: string
+        default: "$PWD"
+    steps:
+      - restore_cache:
+          keys:
+            - rize-v1-{{ .Branch }}
+          paths:
+            - /tmp/cache/container.tar.gz
+      - docker-load
+      - rize:
+          container-name: <<parameters.container-name>>
+          container-tag: <<parameters.container-tag>>
+          directory: <<parameters.directory>>
+      - run: docker images
+      - docker-save:
+          container-name: <<parameters.container-name>>
+          container-tag: <<parameters.container-tag>>
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - cache/container.tar.gz
+            - src
+
+  rize_and_deploy:
+    description: |
+      Run rize using the Docker base to generate a container with a shiny
+      application, and then deploy the container to Docker Hub. Make sure
+      to set your DOCKER_USER and DOCKER_PASS in the environment for this to
+      work.
+    executor: docker
+    parameters:
+      container-name:
+        type: string
+        default: "rize-container"
+      container-tag:
+        type: string
+        default: latest
+      directory:
+        type: string
+        default: "$PWD"
+    steps:
+      - restore_cache:
+          keys:
+            - rize-v1-{{ .Branch }}
+          paths:
+            - /tmp/cache/container.tar.gz
+      - docker-load
+      - rize:
+          container-name: <<parameters.container-name>>
+          container-tag: <<parameters.container-tag>>
+          directory: <<parameters.directory>>
+      - run: docker images
+      - docker-save:
+          container-name: <<parameters.container-name>>
+          container-tag: <<parameters.container-tag>>
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - cache/container.tar.gz
+            - src
+      - deploy:
+          container-name: <<parameters.container-name>>
+          container-tag: <<parameters.container-tag>>
