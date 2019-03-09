@@ -10,7 +10,7 @@ examples:
     description: |
       Generate a container with rize for your shiny application, and deploy
       to Docker Hub. Make sure you have defined your DOCKER_USER and
-      DOCKER_PASS in your CircleCI project environment variables for 
+      DOCKER_PASS in your CircleCI project environment variables for
       deploy to work.
     usage:
       version: 2.1
@@ -19,11 +19,11 @@ examples:
         rize: vanessa/rize@1.0.0
 
       workflows:
-          rize_and_deploy:
-            jobs:
-              - rize/rize_and_deploy:
-                  container-name: vanessa/rize-container
-                  container-tag: latest
+        rize_and_deploy:
+          jobs:
+            - rize/rize_and_deploy:
+                container-name: vanessa/rize-container
+                container-tag: latest
 
 
 # EXECUTORS ####################################################################
@@ -54,7 +54,7 @@ commands:
       - run:
           name: Install a different or updated version of rize from GitHub
           command: |
-            Rscript -e "remotes::install_github('<< parameters.repository >>@<< parameters.branch-tag >>')" && \
+            Rscript -e "remotes::install_github('<< parameters.repository >>@<< parameters.branch-tag >>')"
 
   rize:
     description: |
@@ -70,6 +70,7 @@ commands:
         type: string
         default: "$PWD"
     steps:
+      - setup_remote_docker
       - checkout
       - run:
           name: Run rize to generate Docker container with shiny application
@@ -94,14 +95,15 @@ commands:
         type: string
         default: $CIRCLE_SHA1
     steps:
-      - run: 
+      - setup_remote_docker
+      - run:
           name: Docker Save
           no_output_timeout: 40m
           command: |
-              echo "Saving <<parameters.container-name>>:<<parameters.container-tag>> to container.tar.gz"
-              mkdir -p /tmp/cache
-              docker save <<parameters.container-name>>:<<parameters.container-tag>> \
-              | pigz -2 -p 3 > /tmp/cache/container.tar.gz
+            echo "Saving <<parameters.container-name>>:<<parameters.container-tag>> to container.tar.gz"
+            mkdir -p /tmp/cache
+            docker save <<parameters.container-name>>:<<parameters.container-tag>> \
+            | pigz -2 -p 3 > /tmp/cache/container.tar.gz
 
   docker-load:
     description: |
@@ -114,18 +116,19 @@ commands:
         type: string
         default: $CIRCLE_SHA1
     steps:
-      - run: 
+      - setup_remote_docker
+      - run:
           name: Load Docker Container Image
           no_output_timeout: 40m
           command: |
-              echo "Working directory is ${PWD}"
-              docker info
-              set +o pipefail
-              if [ -f /tmp/cache/container.tar.gz ]; then
-                  apk update && apk add --no-cache pigz curl curl-dev
-                  pigz -d --stdout /tmp/cache/container.tar.gz | docker load
-                  docker images
-              fi
+            echo "Working directory is ${PWD}"
+            docker info
+            set +o pipefail
+            if [ -f /tmp/cache/container.tar.gz ]; then
+                apk update && apk add --no-cache pigz curl curl-dev
+                pigz -d --stdout /tmp/cache/container.tar.gz | docker load
+                docker images
+            fi
 
   docker-deploy:
     description: |
@@ -138,7 +141,8 @@ commands:
         type: string
         default: $CIRCLE_SHA1
     steps:
-      - run: 
+      - setup_remote_docker
+      - run:
           name: Deploy to Docker Hub
           no_output_timeout: 40m
           command: |
@@ -174,6 +178,7 @@ jobs:
         type: string
         default: "$PWD"
     steps:
+      - setup_remote_docker
       - restore_cache:
           keys:
             - rize-v1-{{ .Branch }}
@@ -217,6 +222,7 @@ jobs:
             - rize-v1-{{ .Branch }}
           paths:
             - /tmp/cache/container.tar.gz
+      - setup_remote_docker
       - docker-load
       - rize:
           container-name: <<parameters.container-name>>
